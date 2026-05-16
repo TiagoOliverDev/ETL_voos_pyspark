@@ -54,6 +54,12 @@ Esse comando sobe:
 - container `etl-spark`
 - Airflow
 
+Observacao:
+
+- o Airflow agora nao executa mais o pipeline Spark dentro do proprio container;
+- ele orquestra um container temporario baseado na imagem `flight-etl-spark:latest`;
+- para isso, o servico `airflow` precisa acessar o daemon Docker do host.
+
 ## 4. Verificar se os containers subiram
 
 ```bash
@@ -200,6 +206,13 @@ Depois de abrir o Airflow em `http://localhost:8085`:
 1. procure a DAG `flight_data_medallion_etl`;
 2. habilite a DAG;
 3. clique em trigger para executar manualmente.
+
+Nesse modo, o Airflow:
+
+1. valida PostgreSQL, Spark Master e Docker;
+2. cria um container Spark temporario;
+3. executa `/opt/spark/bin/spark-submit /app/main_spark.py` nesse container;
+4. transmite os logs para a UI do Airflow.
 
 ## 16. Parar o ambiente
 

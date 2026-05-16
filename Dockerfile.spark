@@ -12,3 +12,5 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
     -o /opt/spark/jars/postgresql-42.7.3.jar
 
 WORKDIR /app
+
+COPY . /app

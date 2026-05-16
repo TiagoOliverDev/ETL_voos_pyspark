@@ -18,7 +18,7 @@ O projeto foi organizado para praticar um fluxo mais profissional de dados com s
 - A Silver padroniza schema, converte timestamps, limpa campos textuais e remove duplicidades.
 - A Gold entrega tabelas prontas para consumo analitico.
 - O PostgreSQL atua como camada de serving para consultas e dashboards.
-- O Airflow orquestra a execucao batch do pipeline.
+- O Airflow orquestra a execucao batch do pipeline, disparando um container temporario baseado na imagem Spark do projeto.
 
 ## Arquitetura Atual
 
@@ -85,7 +85,7 @@ Com Docker Compose, o ambiente atual sobe:
 | `src/etl_spark/load_data_spark.py` | Publica as tabelas Gold no PostgreSQL via JDBC |
 | `src/etl_spark/schemas.py` | Centraliza schemas e listas de colunas das camadas |
 | `src/db/db_connections.py` | Centraliza conexao JDBC/psycopg2 e DDL das tabelas Gold |
-| `dags/flight_etl_dag.py` | DAG batch do Airflow para orquestrar o pipeline |
+| `dags/flight_etl_dag.py` | DAG batch do Airflow que orquestra um container Spark temporario |
 | `config/settings.py` | Define diretarios do data lake local e paths particionados |
 
 ## Requisitos
@@ -122,7 +122,7 @@ Ordem recomendada:
 1. crie o arquivo `.env` com base em `.env.example`;
 2. suba o ambiente Docker;
 3. valide se PostgreSQL, Spark e Airflow subiram;
-4. execute o pipeline com `spark-submit` no container `etl-spark`;
+4. execute o pipeline manualmente no container `etl-spark` ou deixe o Airflow disparar um container Spark temporario;
 5. consulte as tabelas Gold no PostgreSQL;
 6. execute novamente para validar o comportamento de upsert.
 
@@ -180,6 +180,12 @@ Depois suba novamente:
 
 ```bash
 docker compose up -d
+```
+
+Se voce alterar o codigo do job Spark e quiser garantir que a imagem usada pelo Airflow carregue esse codigo novo:
+
+```bash
+docker compose build --no-cache etl-spark spark-master spark-worker-1 spark-worker-2
 ```
 
 Execute o ETL no cluster Spark:
@@ -337,8 +343,9 @@ python main_spark.py
 A DAG [flight_etl_dag.py](</c:/Users/tiago/OneDrive/Área de Trabalho/Pratica eng/dags/flight_etl_dag.py:1>) faz:
 
 1. validacao de dependencias de infraestrutura;
-2. disparo do pipeline medalhao completo;
-3. execucao batch horaria.
+2. criacao de um container temporario baseado na imagem `flight-etl-spark:latest`;
+3. execucao do `spark-submit` desse container contra o cluster Spark;
+4. execucao batch horaria.
 
 Nome da DAG:
 
@@ -358,7 +365,9 @@ Observacao sobre credenciais do Airflow:
 - o container agora sincroniza o usuario admin com as variaveis `AIRFLOW_USER`, `AIRFLOW_PASSWORD`, `AIRFLOW_FIRSTNAME`, `AIRFLOW_LASTNAME` e `AIRFLOW_EMAIL` a cada subida;
 - se o usuario ja existir, a senha e redefinida com o valor atual do `.env`;
 - se o usuario nao existir, ele e criado automaticamente.
-- o Airflow usa `pyspark` na mesma versao do cluster Spark para evitar conflitos de serializacao entre driver e workers.
+- o Airflow nao executa mais `pyspark` diretamente dentro do proprio container;
+- a DAG usa o daemon Docker para subir um container temporario com a imagem Spark do projeto;
+- por isso, o servico `airflow` precisa acessar o socket Docker do host.
 
 ## Observacoes
 
@@ -367,3 +376,4 @@ Observacao sobre credenciais do Airflow:
 - A Gold entrega datasets prontos para analise e serving.
 - A publicacao no PostgreSQL usa staging + `ON CONFLICT`, permitindo upsert idempotente.
 - O MongoDB foi removido do projeto porque o data lake local em arquivos atende melhor ao modelo medalhao com Spark.
+- O caminho manual continua disponivel com `docker compose exec etl-spark /opt/spark/bin/spark-submit /app/main_spark.py`.
