@@ -6,12 +6,15 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project requirements and install them
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt \
-    && pip install --no-cache-dir pyspark
+# Copia apenas as dependencias necessarias para a imagem do Airflow
+COPY requirements.airflow.txt /tmp/requirements.airflow.txt
+
+# A imagem oficial do Airflow exige que pacotes Python sejam instalados com o usuario `airflow`
+USER airflow
+RUN pip install --no-cache-dir -r /tmp/requirements.airflow.txt
 
 # Copy the project into the image (dags are mounted at runtime)
+USER root
 COPY . /opt/airflow/app
 RUN chown -R airflow: /opt/airflow/app
 

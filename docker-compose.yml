@@ -140,9 +140,12 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
       AIRFLOW_USER: ${AIRFLOW_USER:-ROOT}
       AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD:-ROOT}
+      AIRFLOW_FIRSTNAME: ${AIRFLOW_FIRSTNAME:-ROOT}
+      AIRFLOW_LASTNAME: ${AIRFLOW_LASTNAME:-ROOT}
+      AIRFLOW_EMAIL: ${AIRFLOW_EMAIL:-root@example.com}
       SPARK_MASTER_URL: spark://spark-master:7077
       ETL_DB_HOST: postgres-etl
       ETL_DB_PORT: 5432
@@ -151,7 +154,12 @@ services:
       ETL_DB_PASSWORD: ${ETL_DB_PASSWORD:-postgres}
     ports:
       - "8085:8080"
-    command: ["bash", "-c", "airflow db init && airflow users create --username ${AIRFLOW_USER:-ROOT} --firstname ROOT --lastname ROOT --role Admin --email root@example.com --password ${AIRFLOW_PASSWORD:-ROOT} --force || true && exec airflow standalone"]
+    command:
+      [
+        "bash",
+        "-c",
+        "airflow db init && if airflow users list | awk 'NR>2 {print $2}' | grep -Fxq \"${AIRFLOW_USER:-ROOT}\"; then airflow users reset-password --username \"${AIRFLOW_USER:-ROOT}\" --password \"${AIRFLOW_PASSWORD:-ROOT}\"; else airflow users create --username \"${AIRFLOW_USER:-ROOT}\" --firstname \"${AIRFLOW_FIRSTNAME:-ROOT}\" --lastname \"${AIRFLOW_LASTNAME:-ROOT}\" --role Admin --email \"${AIRFLOW_EMAIL:-root@example.com}\" --password \"${AIRFLOW_PASSWORD:-ROOT}\"; fi && exec airflow standalone"
+      ]
     volumes:
       - ./dags:/opt/airflow/dags
       - ./:/opt/airflow/app:rw

@@ -110,6 +110,9 @@ ETL_DB_PASSWORD=root
 SPARK_MASTER_URL=spark://spark-master:7077
 AIRFLOW_USER=ROOT
 AIRFLOW_PASSWORD=ROOT
+AIRFLOW_FIRSTNAME=ROOT
+AIRFLOW_LASTNAME=ROOT
+AIRFLOW_EMAIL=root@example.com
 ```
 
 ## Como Executar com Docker
@@ -337,6 +340,12 @@ Fluxo rapido para testar a DAG:
 2. faca login com `ROOT / ROOT`;
 3. habilite a DAG `flight_data_medallion_etl`;
 4. dispare uma execucao manual.
+
+Observacao sobre credenciais do Airflow:
+
+- o container agora sincroniza o usuario admin com as variaveis `AIRFLOW_USER`, `AIRFLOW_PASSWORD`, `AIRFLOW_FIRSTNAME`, `AIRFLOW_LASTNAME` e `AIRFLOW_EMAIL` a cada subida;
+- se o usuario ja existir, a senha e redefinida com o valor atual do `.env`;
+- se o usuario nao existir, ele e criado automaticamente.
 
 ## Observacoes
 

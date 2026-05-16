@@ -24,6 +24,9 @@ ETL_DB_PASSWORD=root
 SPARK_MASTER_URL=spark://spark-master:7077
 AIRFLOW_USER=ROOT
 AIRFLOW_PASSWORD=ROOT
+AIRFLOW_FIRSTNAME=ROOT
+AIRFLOW_LASTNAME=ROOT
+AIRFLOW_EMAIL=root@example.com
 ```
 
 ## 2. Limpar o ambiente anterior, se quiser reiniciar do zero
@@ -103,6 +106,12 @@ Credenciais padrao:
 Usuario: ROOT
 Senha: ROOT
 ```
+
+Observacao:
+
+- o container do Airflow sincroniza automaticamente o usuario admin com os valores do `.env`;
+- se o usuario informado em `AIRFLOW_USER` ja existir, a senha sera redefinida com `AIRFLOW_PASSWORD` durante a inicializacao;
+- se nao existir, o usuario sera criado automaticamente.
 
 ## 9. Executar o pipeline medalhao no cluster Spark
 
