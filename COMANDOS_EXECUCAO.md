@@ -1,12 +1,18 @@
 # Comandos para Rodar o Projeto
 
-Este arquivo mostra a ordem recomendada para executar o pipeline medalhao corretamente.
+Este arquivo mostra a ordem completa para executar o pipeline medalhao via Docker.
 
 ## 1. Criar o arquivo `.env`
 
 Use o `.env.example` como base.
 
-Exemplo:
+Se quiser copiar rapidamente:
+
+```bash
+cp .env.example .env
+```
+
+Exemplo de conteudo:
 
 ```env
 ETL_DB_HOST=postgres-etl
@@ -20,12 +26,19 @@ AIRFLOW_USER=ROOT
 AIRFLOW_PASSWORD=ROOT
 ```
 
-## 2. Subir o ambiente com Docker
+## 2. Limpar o ambiente anterior, se quiser reiniciar do zero
+
+```bash
+docker compose down -v
+```
+
+Esse comando remove containers, rede e volume do PostgreSQL.
+
+## 3. Subir o ambiente com Docker
 
 Na raiz do projeto:
 
 ```bash
-docker compose down -v
 docker compose up --build -d
 ```
 
@@ -38,19 +51,35 @@ Esse comando sobe:
 - container `etl-spark`
 - Airflow
 
-Observacoes:
-
-- o build do cluster Spark usa `requirements.spark.txt`, com apenas as dependencias necessarias para o pipeline;
-- o PostgreSQL continua usando a porta `5432` dentro do Docker, mas fica publicado na porta `5439` na sua maquina;
-- o data lake local fica montado no proprio workspace, nas pastas `data/bronze`, `data/silver` e `data/gold`.
-
-## 3. Verificar se os containers subiram
+## 4. Verificar se os containers subiram
 
 ```bash
 docker compose ps
 ```
 
-## 4. Verificar a interface do cluster Spark
+## 5. Validar a configuracao final do Compose, se quiser conferir
+
+```bash
+docker compose config
+```
+
+## 6. Acompanhar a inicializacao dos servicos
+
+```bash
+docker compose logs -f postgres-etl
+```
+
+Em outro terminal, se quiser:
+
+```bash
+docker compose logs -f spark-master
+```
+
+```bash
+docker compose logs -f airflow
+```
+
+## 7. Verificar a interface do cluster Spark
 
 Abra no navegador:
 
@@ -60,7 +89,22 @@ http://localhost:8081
 
 Se tudo estiver certo, o Master deve mostrar os workers conectados.
 
-## 5. Rodar o pipeline medalhao no cluster Spark
+## 8. Verificar a interface do Airflow
+
+Abra no navegador:
+
+```text
+http://localhost:8085
+```
+
+Credenciais padrao:
+
+```text
+Usuario: ROOT
+Senha: ROOT
+```
+
+## 9. Executar o pipeline medalhao no cluster Spark
 
 ```bash
 docker compose exec etl-spark /opt/spark/bin/spark-submit /app/main_spark.py
@@ -72,33 +116,89 @@ Esse comando executa:
 2. gravacao do snapshot bruto na Bronze;
 3. transformacao da Bronze para a Silver;
 4. geracao das tabelas Gold em Parquet;
-5. publicacao das tabelas Gold no PostgreSQL.
+5. publicacao das tabelas Gold no PostgreSQL com upsert.
 
-## 6. Ver logs do ETL, se precisar
+## 10. Ver os logs do ETL durante ou depois da execucao
 
 ```bash
 docker compose logs -f etl-spark
 ```
 
-## 7. Ver logs do Spark Master, se precisar
+## 11. Conferir os arquivos gerados no data lake local
 
 ```bash
-docker compose logs -f spark-master
+ls data
 ```
 
-## 8. Abrir o Airflow, se quiser acompanhar a DAG
-
-```text
-http://localhost:8085
+```bash
+ls data/bronze
 ```
 
-## 9. Parar o ambiente
+```bash
+ls data/silver
+```
+
+```bash
+ls data/gold
+```
+
+## 12. Acessar o PostgreSQL pelo terminal
+
+```bash
+docker compose exec postgres-etl psql -U postgres -d flight_data_db
+```
+
+## 13. Consultar as tabelas Gold no PostgreSQL
+
+Dentro do `psql`:
+
+```sql
+\dt
+```
+
+```sql
+SELECT *
+FROM gold_flight_positions
+ORDER BY ingested_at DESC
+LIMIT 20;
+```
+
+```sql
+SELECT *
+FROM gold_country_metrics
+ORDER BY snapshot_timestamp DESC, total_flights DESC
+LIMIT 20;
+```
+
+## 14. Executar o pipeline novamente para validar o upsert
+
+```bash
+docker compose exec etl-spark /opt/spark/bin/spark-submit /app/main_spark.py
+```
+
+Depois, acompanhe os logs:
+
+```bash
+docker compose logs -f etl-spark
+```
+
+Voce deve ver mensagens com quantidade de registros inseridos e atualizados por tabela Gold.
+
+## 15. Rodar pela DAG do Airflow, se quiser testar a orquestracao
+
+Depois de abrir o Airflow em `http://localhost:8085`:
+
+1. procure a DAG `flight_data_medallion_etl`;
+2. habilite a DAG;
+3. clique em trigger para executar manualmente.
+
+## 16. Parar o ambiente
 
 ```bash
 docker compose down
 ```
 
-## 10. Parar e remover volumes do banco, se quiser resetar tudo
+## 17. Parar e remover volumes do banco, se quiser resetar tudo
 
 ```bash
 docker compose down -v
@@ -109,8 +209,10 @@ Use esse comando apenas se quiser apagar os dados persistidos do PostgreSQL.
 ## Fluxo resumido
 
 ```bash
+cp .env.example .env
 docker compose up --build -d
 docker compose ps
 docker compose exec etl-spark /opt/spark/bin/spark-submit /app/main_spark.py
+docker compose exec postgres-etl psql -U postgres -d flight_data_db
 docker compose down
 ```

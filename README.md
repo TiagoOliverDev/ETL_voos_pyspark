@@ -114,16 +114,87 @@ AIRFLOW_PASSWORD=ROOT
 
 ## Como Executar com Docker
 
+Ordem recomendada:
+
+1. crie o arquivo `.env` com base em `.env.example`;
+2. suba o ambiente Docker;
+3. valide se PostgreSQL, Spark e Airflow subiram;
+4. execute o pipeline com `spark-submit` no container `etl-spark`;
+5. consulte as tabelas Gold no PostgreSQL;
+6. execute novamente para validar o comportamento de upsert.
+
+Comandos:
+
+```bash
+cp .env.example .env
+```
+
+Se quiser reiniciar tudo do zero:
+
+```bash
+docker compose down -v
+```
+
 Suba o ambiente:
 
 ```bash
 docker compose up --build -d
 ```
 
+Confira os containers:
+
+```bash
+docker compose ps
+```
+
+Se quiser validar a configuracao final do Compose:
+
+```bash
+docker compose config
+```
+
+Veja os logs dos servicos principais:
+
+```bash
+docker compose logs -f postgres-etl
+```
+
+```bash
+docker compose logs -f spark-master
+```
+
+```bash
+docker compose logs -f airflow
+```
+
 Execute o ETL no cluster Spark:
 
 ```bash
 docker compose exec etl-spark /opt/spark/bin/spark-submit /app/main_spark.py
+```
+
+Veja os logs do ETL:
+
+```bash
+docker compose logs -f etl-spark
+```
+
+Consulte o PostgreSQL:
+
+```bash
+docker compose exec postgres-etl psql -U postgres -d flight_data_db
+```
+
+Execute novamente para validar upsert:
+
+```bash
+docker compose exec etl-spark /opt/spark/bin/spark-submit /app/main_spark.py
+```
+
+Ao final, pare o ambiente:
+
+```bash
+docker compose down
 ```
 
 Interfaces disponiveis:
@@ -169,6 +240,18 @@ SELECT *
 FROM gold_country_metrics
 ORDER BY snapshot_timestamp DESC, total_flights DESC
 LIMIT 20;
+```
+
+Para verificar o comportamento de upsert depois de uma segunda execucao:
+
+```sql
+SELECT COUNT(*)
+FROM gold_flight_positions;
+```
+
+```sql
+SELECT COUNT(*)
+FROM gold_country_metrics;
 ```
 
 Se preferir acessar pelo terminal do Docker:
@@ -248,9 +331,17 @@ Nome da DAG:
 flight_data_medallion_etl
 ```
 
+Fluxo rapido para testar a DAG:
+
+1. abra `http://localhost:8085`;
+2. faca login com `ROOT / ROOT`;
+3. habilite a DAG `flight_data_medallion_etl`;
+4. dispare uma execucao manual.
+
 ## Observacoes
 
 - A Bronze preserva o dado original para reprocessamento.
 - A Silver concentra regras de limpeza, tipagem e deduplicacao.
 - A Gold entrega datasets prontos para analise e serving.
+- A publicacao no PostgreSQL usa staging + `ON CONFLICT`, permitindo upsert idempotente.
 - O MongoDB foi removido do projeto porque o data lake local em arquivos atende melhor ao modelo medalhao com Spark.
