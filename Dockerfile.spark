@@ -1,0 +1,14 @@
+FROM spark:3.5.8-scala2.12-java11-python3-ubuntu
+
+USER root
+
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.spark.txt /tmp/requirements.spark.txt
+
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir -r /tmp/requirements.spark.txt && \
+    curl -fsSL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar \
+    -o /opt/spark/jars/postgresql-42.7.3.jar
+
+WORKDIR /app

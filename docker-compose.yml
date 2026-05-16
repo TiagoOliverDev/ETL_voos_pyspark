@@ -1,0 +1,196 @@
+x-spark-image: &spark-image
+  build:
+    context: .
+    dockerfile: Dockerfile.spark
+  image: flight-etl-spark:latest
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: voos_mongodb_raw
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-mongo_admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-mongo_pass}
+    ports:
+      - "${MONGO_HOST_PORT:-27018}:27017"
+    volumes:
+      - mongo-raw-data:/data/db
+    networks:
+      - etl-spark-network
+
+  postgres-etl:
+    image: postgres:16
+    container_name: voos_postgres_etl
+    environment:
+      POSTGRES_DB: ${ETL_DB_NAME:-flight_data_db}
+      POSTGRES_USER: ${ETL_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${ETL_DB_PASSWORD:-postgres}
+    ports:
+      - "${ETL_DB_HOST_PORT:-5439}:5432"
+    volumes:
+      - etl-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ETL_DB_USER:-postgres} -d ${ETL_DB_NAME:-flight_data_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - etl-spark-network
+
+  spark-master:
+    <<: *spark-image
+    container_name: spark_master
+    environment:
+      PYTHONPATH: /app
+      SPARK_NO_DAEMONIZE: "true"
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+    volumes:
+      - ./:/app
+    command:
+      [
+        "/opt/spark/bin/spark-class",
+        "org.apache.spark.deploy.master.Master",
+        "--host",
+        "spark-master",
+        "--port",
+        "7077",
+        "--webui-port",
+        "8080"
+      ]
+    networks:
+      - etl-spark-network
+
+  spark-worker-1:
+    <<: *spark-image
+    container_name: spark_worker_1
+    environment:
+      PYTHONPATH: /app
+      SPARK_NO_DAEMONIZE: "true"
+    depends_on:
+      - spark-master
+    ports:
+      - "8082:8081"
+    volumes:
+      - ./:/app
+    command:
+      [
+        "/opt/spark/bin/spark-class",
+        "org.apache.spark.deploy.worker.Worker",
+        "spark://spark-master:7077",
+        "--webui-port",
+        "8081",
+        "--cores",
+        "1",
+        "--memory",
+        "1G"
+      ]
+    networks:
+      - etl-spark-network
+
+  spark-worker-2:
+    <<: *spark-image
+    container_name: spark_worker_2
+    environment:
+      PYTHONPATH: /app
+      SPARK_NO_DAEMONIZE: "true"
+    depends_on:
+      - spark-master
+    ports:
+      - "8083:8081"
+    volumes:
+      - ./:/app
+    command:
+      [
+        "/opt/spark/bin/spark-class",
+        "org.apache.spark.deploy.worker.Worker",
+        "spark://spark-master:7077",
+        "--webui-port",
+        "8081",
+        "--cores",
+        "1",
+        "--memory",
+        "1G"
+      ]
+    networks:
+      - etl-spark-network
+
+  etl-spark:
+    <<: *spark-image
+    container_name: etl_spark_app
+    working_dir: /app
+    environment:
+      SPARK_MASTER_URL: spark://spark-master:7077
+      ETL_DB_HOST: postgres-etl
+      ETL_DB_PORT: 5432
+      ETL_DB_NAME: ${ETL_DB_NAME:-flight_data_db}
+      ETL_DB_USER: ${ETL_DB_USER:-postgres}
+      ETL_DB_PASSWORD: ${ETL_DB_PASSWORD:-postgres}
+      MONGO_HOST: mongodb
+      MONGO_PORT: 27017
+      MONGO_DB: ${MONGO_DB:-flight_data_raw}
+      MONGO_USER: ${MONGO_USER:-mongo_admin}
+      MONGO_PASSWORD: ${MONGO_PASSWORD:-mongo_pass}
+      PYTHONPATH: /app
+      PYSPARK_PYTHON: /usr/bin/python3
+      PYSPARK_DRIVER_PYTHON: /usr/bin/python3
+    depends_on:
+      mongodb:
+        condition: service_started
+      postgres-etl:
+        condition: service_healthy
+      spark-master:
+        condition: service_started
+      spark-worker-1:
+        condition: service_started
+      spark-worker-2:
+        condition: service_started
+    volumes:
+      - ./:/app
+    command: ["tail", "-f", "/dev/null"]
+    networks:
+      - etl-spark-network
+
+  airflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: voos_airflow
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+      AIRFLOW_USER: ${AIRFLOW_USER:-ROOT}
+      AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD:-ROOT}
+      SPARK_MASTER_URL: spark://spark-master:7077
+      ETL_DB_HOST: postgres-etl
+      ETL_DB_PORT: 5432
+      ETL_DB_NAME: ${ETL_DB_NAME:-flight_data_db}
+      ETL_DB_USER: ${ETL_DB_USER:-postgres}
+      ETL_DB_PASSWORD: ${ETL_DB_PASSWORD:-postgres}
+      MONGO_HOST: mongodb
+      MONGO_PORT: 27017
+      MONGO_DB: ${MONGO_DB:-flight_data_raw}
+      MONGO_USER: ${MONGO_USER:-mongo_admin}
+      MONGO_PASSWORD: ${MONGO_PASSWORD:-mongo_pass}
+    ports:
+      - "8085:8080"
+    command: ["bash", "-c", "airflow db init && airflow users create --username ${AIRFLOW_USER:-ROOT} --firstname ROOT --lastname ROOT --role Admin --email root@example.com --password ${AIRFLOW_PASSWORD:-ROOT} --force || true && exec airflow standalone"]
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./:/opt/airflow/app:rw
+    depends_on:
+      - mongodb
+      - postgres-etl
+      - spark-master
+    networks:
+      - etl-spark-network
+
+networks:
+  etl-spark-network:
+    name: etl-spark-network
+
+volumes:
+  etl-pgdata:
+  mongo-raw-data:
