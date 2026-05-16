@@ -170,6 +170,18 @@ docker compose logs -f spark-master
 docker compose logs -f airflow
 ```
 
+Se voce alterar dependencias do Airflow ou do Spark, faca rebuild da imagem correspondente:
+
+```bash
+docker compose build --no-cache airflow
+```
+
+Depois suba novamente:
+
+```bash
+docker compose up -d
+```
+
 Execute o ETL no cluster Spark:
 
 ```bash
@@ -346,6 +358,7 @@ Observacao sobre credenciais do Airflow:
 - o container agora sincroniza o usuario admin com as variaveis `AIRFLOW_USER`, `AIRFLOW_PASSWORD`, `AIRFLOW_FIRSTNAME`, `AIRFLOW_LASTNAME` e `AIRFLOW_EMAIL` a cada subida;
 - se o usuario ja existir, a senha e redefinida com o valor atual do `.env`;
 - se o usuario nao existir, ele e criado automaticamente.
+- o Airflow usa `pyspark` na mesma versao do cluster Spark para evitar conflitos de serializacao entre driver e workers.
 
 ## Observacoes
 

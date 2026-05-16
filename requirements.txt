@@ -43,7 +43,7 @@ pyarrow==20.0.0
 pycparser==2.22
 Pygments==2.19.1
 pyparsing==3.2.3
-pyspark==3.5.1
+pyspark==3.5.8
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.0
 pytz==2025.2

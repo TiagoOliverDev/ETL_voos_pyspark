@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.exceptions import AirflowException
-from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import PythonOperator
 
 LOG = logging.getLogger("airflow.task")
@@ -114,6 +113,26 @@ def run_full_medallion_pipeline(**context) -> None:
     _run_command(command, cwd=app_path, env=env)
 
 
+def log_pipeline_start() -> None:
+    """
+    Registra no log o inicio da execucao da DAG.
+
+    Returns:
+        None.
+    """
+    LOG.info("Iniciando a execucao da DAG flight_data_medallion_etl.")
+
+
+def log_pipeline_finish() -> None:
+    """
+    Registra no log o fim da execucao da DAG.
+
+    Returns:
+        None.
+    """
+    LOG.info("Finalizando a execucao da DAG flight_data_medallion_etl.")
+
+
 default_args = {
     "owner": "voos-team",
     "depends_on_past": False,
@@ -134,7 +153,10 @@ with DAG(
     tags=["etl", "pyspark", "flights", "medallion"],
 ) as dag:
 
-    start = DummyOperator(task_id="start")
+    start = PythonOperator(
+        task_id="start",
+        python_callable=log_pipeline_start,
+    )
 
     check_deps = PythonOperator(
         task_id="check_service_dependencies",
@@ -154,6 +176,9 @@ with DAG(
         },
     )
 
-    finish = DummyOperator(task_id="finish")
+    finish = PythonOperator(
+        task_id="finish",
+        python_callable=log_pipeline_finish,
+    )
 
     start >> check_deps >> run_medallion_pipeline >> finish
