@@ -1,24 +1,24 @@
-# Flight Data ETL com PySpark
+# Flight Data ETL com PySpark e Arquitetura Medalhao
 
-Projeto de ETL para coleta, transformacao e carga de dados de voos da API OpenSky Network usando **Python**, **PySpark**, **MongoDB**, **PostgreSQL** e um **cluster Spark em Docker**.
+Projeto de engenharia de dados para coleta, tratamento e publicacao de dados de voos da API OpenSky Network usando **Python**, **PySpark**, **PostgreSQL**, **Airflow** e um **cluster Spark em Docker**.
 
-O pipeline atual faz quatro etapas:
+O pipeline foi evoluido para uma arquitetura medalhao local:
 
-1. extrai dados brutos da API OpenSky e salva em JSON;
-2. persiste a camada raw no MongoDB;
-3. transforma os dados com PySpark;
-4. carrega o resultado na tabela `flight_data` do PostgreSQL via JDBC.
+1. **Bronze**: salva o snapshot bruto da OpenSky em JSON particionado por data e hora;
+2. **Silver**: normaliza, tipa, limpa e deduplica os registros em Parquet;
+3. **Gold**: gera datasets analiticos detalhados e agregados em Parquet;
+4. **Serving**: publica as tabelas Gold no PostgreSQL via JDBC.
 
 ## Visao Geral
 
-O projeto foi organizado para praticar PySpark em um fluxo real de engenharia de dados.
+O projeto foi organizado para praticar um fluxo mais profissional de dados com separacao clara entre camadas.
 
 - A extracao consulta a API `states/all` da OpenSky.
-- A transformacao converte o array `states` em colunas nomeadas.
-- Os timestamps Unix sao convertidos para `timestamp`.
-- Os dados brutos sao persistidos no MongoDB.
-- Os dados finais tratados sao gravados no PostgreSQL.
-- A tabela `flight_data` é criada automaticamente se ainda nao existir.
+- A Bronze preserva o payload bruto para auditoria e reprocessamento.
+- A Silver padroniza schema, converte timestamps, limpa campos textuais e remove duplicidades.
+- A Gold entrega tabelas prontas para consumo analitico.
+- O PostgreSQL atua como camada de serving para consultas e dashboards.
+- O Airflow orquestra a execucao batch do pipeline.
 
 ## Arquitetura Atual
 
@@ -26,23 +26,26 @@ O projeto foi organizado para praticar PySpark em um fluxo real de engenharia de
 OpenSky API
     |
     v
-MongoDB raw + JSON bruto em data/raw
+Bronze JSON em data/bronze
     |
     v
-PySpark ETL
+Silver Parquet em data/silver
     |
     v
-PostgreSQL
+Gold Parquet em data/gold
+    |
+    v
+PostgreSQL (serving layer)
 ```
 
 Com Docker Compose, o ambiente atual sobe:
 
 - `postgres-etl`
-- `mongodb`
 - `spark-master`
 - `spark-worker-1`
 - `spark-worker-2`
 - `etl-spark`
+- `airflow`
 
 ## Estrutura do Projeto
 
@@ -50,23 +53,25 @@ Com Docker Compose, o ambiente atual sobe:
 .
 |-- config/
 |   `-- settings.py
+|-- dags/
+|   `-- flight_etl_dag.py
 |-- src/
 |   |-- db/
 |   |   `-- db_connections.py
 |   |-- etl_spark/
 |   |   |-- extract_data_spark.py
-|   |   |-- transform_data_spark.py
 |   |   |-- load_data_spark.py
 |   |   |-- schemas.py
-|   |   `-- spark_session.py
+|   |   |-- spark_session.py
+|   |   `-- transform_data_spark.py
 |   `-- utils/
 |       `-- logger.py
 |-- .env.example
 |-- docker-compose.yml
-|-- Dockerfile
+|-- Dockerfile.airflow
 |-- Dockerfile.spark
 |-- main_spark.py
-|-- requirements.txt
+|-- requirements.spark.txt
 `-- README.md
 ```
 
@@ -74,17 +79,14 @@ Com Docker Compose, o ambiente atual sobe:
 
 | Caminho | Descricao |
 |---|---|
-| `main_spark.py` | Executa o pipeline completo |
-| `src/etl_spark/extract_data_spark.py` | Extrai dados brutos da API OpenSky |
-| `src/etl_spark/transform_data_spark.py` | Transforma os dados com PySpark |
-| `src/etl_spark/load_data_spark.py` | Grava os dados no PostgreSQL via JDBC |
-| `src/etl_spark/spark_session.py` | Cria a `SparkSession` |
-| `src/etl_spark/schemas.py` | Define o schema usado na transformacao |
-| `src/db/db_connections.py` | Centraliza configuracoes de conexao com PostgreSQL |
-| `src/db/mongo_connections.py` | Centraliza persistencia raw no MongoDB |
-| `docker-compose.yml` | Sobe PostgreSQL e cluster Spark |
-| `Dockerfile.spark` | Imagem base do cluster Spark com dependencias do projeto |
-| `requirements.spark.txt` | Dependencias minimas usadas pela imagem do cluster Spark |
+| `main_spark.py` | Orquestra o pipeline Bronze -> Silver -> Gold -> PostgreSQL |
+| `src/etl_spark/extract_data_spark.py` | Faz a extracao da API e grava a Bronze em JSON |
+| `src/etl_spark/transform_data_spark.py` | Gera a Silver e as tabelas Gold em Parquet |
+| `src/etl_spark/load_data_spark.py` | Publica as tabelas Gold no PostgreSQL via JDBC |
+| `src/etl_spark/schemas.py` | Centraliza schemas e listas de colunas das camadas |
+| `src/db/db_connections.py` | Centraliza conexao JDBC/psycopg2 e DDL das tabelas Gold |
+| `dags/flight_etl_dag.py` | DAG batch do Airflow para orquestrar o pipeline |
+| `config/settings.py` | Define diretarios do data lake local e paths particionados |
 
 ## Requisitos
 
@@ -94,7 +96,7 @@ Com Docker Compose, o ambiente atual sobe:
 
 ## Variaveis de Ambiente
 
-Use o arquivo `.env` com base em `.env.example`.
+Use o arquivo `.env` com base em [.env.example](</c:/Users/tiago/OneDrive/Área de Trabalho/Pratica eng/.env.example:1>).
 
 Variaveis principais:
 
@@ -105,13 +107,9 @@ ETL_DB_HOST_PORT=5439
 ETL_DB_NAME=flight_data_db
 ETL_DB_USER=postgres
 ETL_DB_PASSWORD=root
-MONGO_HOST=mongodb
-MONGO_PORT=27017
-MONGO_HOST_PORT=27018
-MONGO_DB=flight_data_raw
-MONGO_USER=mongo_admin
-MONGO_PASSWORD=mongo_pass
 SPARK_MASTER_URL=spark://spark-master:7077
+AIRFLOW_USER=ROOT
+AIRFLOW_PASSWORD=ROOT
 ```
 
 ## Como Executar com Docker
@@ -133,14 +131,12 @@ Interfaces disponiveis:
 - Spark Master UI: `http://localhost:8081`
 - Spark Worker 1 UI: `http://localhost:8082`
 - Spark Worker 2 UI: `http://localhost:8083`
+- Airflow UI: `http://localhost:8085`
 - PostgreSQL no host: porta definida em `ETL_DB_HOST_PORT` (padrao `5439`)
-- MongoDB no host: porta definida em `MONGO_HOST_PORT` (padrao `27018`)
 
-## Como Acessar os Bancos
+## Como Acessar o PostgreSQL
 
-### PostgreSQL
-
-O PostgreSQL armazena a camada tratada do pipeline, na tabela `flight_data`.
+O PostgreSQL armazena a camada Gold publicada para consumo.
 
 Dados de conexao no host:
 
@@ -154,12 +150,24 @@ Password: root
 
 Voce pode acessar com DBeaver, DataGrip, pgAdmin ou outro cliente SQL.
 
-Exemplo de consulta:
+Tabelas publicadas:
+
+- `gold_flight_positions`
+- `gold_country_metrics`
+
+Exemplos de consulta:
 
 ```sql
 SELECT *
-FROM flight_data
+FROM gold_flight_positions
 ORDER BY ingested_at DESC
+LIMIT 20;
+```
+
+```sql
+SELECT *
+FROM gold_country_metrics
+ORDER BY snapshot_timestamp DESC, total_flights DESC
 LIMIT 20;
 ```
 
@@ -169,49 +177,48 @@ Se preferir acessar pelo terminal do Docker:
 docker compose exec postgres-etl psql -U postgres -d flight_data_db
 ```
 
-### MongoDB
+## Camadas do Data Lake
 
-O MongoDB armazena a camada raw do pipeline.
+### Bronze
 
-Dados de conexao no host:
-
-```text
-Host: 127.0.0.1
-Port: 27018
-Username: mongo_admin
-Password: mongo_pass
-Authentication Database: admin
-Database: flight_data_raw
-```
-
-Voce pode acessar com MongoDB Compass, extensao MongoDB do VS Code ou outro cliente compatível.
-
-Connection string para o MongoDB Compass:
+Armazena o payload bruto da API em JSON particionado:
 
 ```text
-mongodb://mongo_admin:mongo_pass@127.0.0.1:27018/?authSource=admin
+data/bronze/opensky_api_states/year=YYYY/month=MM/day=DD/hour=HH/
 ```
 
-Colecoes principais:
+### Silver
 
-- `raw_flight_snapshots`
-- `raw_flight_states`
+Armazena registros curados de posicoes de voo em Parquet particionado por `snapshot_date` e `snapshot_hour`.
 
-Exemplos de consulta no MongoDB:
+Dataset:
 
-```javascript
-db.raw_flight_snapshots.find().limit(5)
+```text
+data/silver/flight_positions_curated/
 ```
 
-```javascript
-db.raw_flight_states.find().limit(5)
-```
+### Gold
 
-Se preferir acessar pelo terminal do Docker:
+Armazena datasets analiticos em Parquet:
 
-```bash
-docker compose exec mongodb mongosh -u mongo_admin -p mongo_pass --authenticationDatabase admin
-```
+- `data/gold/flight_positions/`
+- `data/gold/country_metrics/`
+
+## Tabelas Gold no PostgreSQL
+
+### `gold_flight_positions`
+
+Tabela detalhada com historico curado de posicoes de voo, pronta para consumo analitico.
+
+### `gold_country_metrics`
+
+Tabela agregada por pais e snapshot, com metricas como:
+
+- total de voos
+- voos em solo
+- voos em voo
+- velocidade media
+- altitude media e maxima
 
 ## Como Executar Localmente
 
@@ -227,34 +234,23 @@ Execute:
 python main_spark.py
 ```
 
-## Tabela de Destino
+## Orquestracao com Airflow
 
-O ETL grava os dados na tabela `flight_data`.
+A DAG [flight_etl_dag.py](</c:/Users/tiago/OneDrive/Área de Trabalho/Pratica eng/dags/flight_etl_dag.py:1>) faz:
 
-Ela é criada automaticamente com o schema abaixo:
+1. validacao de dependencias de infraestrutura;
+2. disparo do pipeline medalhao completo;
+3. execucao batch horaria.
 
-```sql
-CREATE TABLE IF NOT EXISTS flight_data (
-    aircraft_code VARCHAR(10) NOT NULL,
-    flight_callsign VARCHAR(10),
-    country_of_origin VARCHAR(100),
-    latitude DOUBLE PRECISION,
-    longitude DOUBLE PRECISION,
-    velocity DOUBLE PRECISION,
-    heading DOUBLE PRECISION,
-    barometric_altitude_m DOUBLE PRECISION,
-    geometric_altitude_m DOUBLE PRECISION,
-    is_on_ground BOOLEAN,
-    position_timestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-    last_contact_timestamp TIMESTAMP WITHOUT TIME ZONE,
-    ingested_at TIMESTAMP WITHOUT TIME ZONE,
-    PRIMARY KEY (aircraft_code, position_timestamp)
-);
+Nome da DAG:
+
+```text
+flight_data_medallion_etl
 ```
 
 ## Observacoes
 
-- Os dados brutos ficam em `data/raw` e no MongoDB.
-- Os dados processados podem ser exportados para `data/processed`.
-- A carga atual usa modo `append`.
-- O projeto esta focado em arquitetura de dados com camada raw em MongoDB e camada tratada em PostgreSQL.
+- A Bronze preserva o dado original para reprocessamento.
+- A Silver concentra regras de limpeza, tipagem e deduplicacao.
+- A Gold entrega datasets prontos para analise e serving.
+- O MongoDB foi removido do projeto porque o data lake local em arquivos atende melhor ao modelo medalhao com Spark.

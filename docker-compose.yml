@@ -5,19 +5,6 @@ x-spark-image: &spark-image
   image: flight-etl-spark:latest
 
 services:
-  mongodb:
-    image: mongo:7
-    container_name: voos_mongodb_raw
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-mongo_admin}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-mongo_pass}
-    ports:
-      - "${MONGO_HOST_PORT:-27018}:27017"
-    volumes:
-      - mongo-raw-data:/data/db
-    networks:
-      - etl-spark-network
-
   postgres-etl:
     image: postgres:16
     container_name: voos_postgres_etl
@@ -127,17 +114,10 @@ services:
       ETL_DB_NAME: ${ETL_DB_NAME:-flight_data_db}
       ETL_DB_USER: ${ETL_DB_USER:-postgres}
       ETL_DB_PASSWORD: ${ETL_DB_PASSWORD:-postgres}
-      MONGO_HOST: mongodb
-      MONGO_PORT: 27017
-      MONGO_DB: ${MONGO_DB:-flight_data_raw}
-      MONGO_USER: ${MONGO_USER:-mongo_admin}
-      MONGO_PASSWORD: ${MONGO_PASSWORD:-mongo_pass}
       PYTHONPATH: /app
       PYSPARK_PYTHON: /usr/bin/python3
       PYSPARK_DRIVER_PYTHON: /usr/bin/python3
     depends_on:
-      mongodb:
-        condition: service_started
       postgres-etl:
         condition: service_healthy
       spark-master:
@@ -169,11 +149,6 @@ services:
       ETL_DB_NAME: ${ETL_DB_NAME:-flight_data_db}
       ETL_DB_USER: ${ETL_DB_USER:-postgres}
       ETL_DB_PASSWORD: ${ETL_DB_PASSWORD:-postgres}
-      MONGO_HOST: mongodb
-      MONGO_PORT: 27017
-      MONGO_DB: ${MONGO_DB:-flight_data_raw}
-      MONGO_USER: ${MONGO_USER:-mongo_admin}
-      MONGO_PASSWORD: ${MONGO_PASSWORD:-mongo_pass}
     ports:
       - "8085:8080"
     command: ["bash", "-c", "airflow db init && airflow users create --username ${AIRFLOW_USER:-ROOT} --firstname ROOT --lastname ROOT --role Admin --email root@example.com --password ${AIRFLOW_PASSWORD:-ROOT} --force || true && exec airflow standalone"]
@@ -181,7 +156,6 @@ services:
       - ./dags:/opt/airflow/dags
       - ./:/opt/airflow/app:rw
     depends_on:
-      - mongodb
       - postgres-etl
       - spark-master
     networks:
@@ -193,4 +167,3 @@ networks:
 
 volumes:
   etl-pgdata:
-  mongo-raw-data:

@@ -1,3 +1,3 @@
-1-> Implementar orquestração com Airflow
-2-> Implementar CI/CD
-3-> Implementar streaming com kafka
+1-> Implementar testes automatizados para as regras Bronze -> Silver -> Gold
+2-> Implementar CI/CD para build, validacao e deploy do ambiente
+3-> Evoluir para streaming com Kafka e Structured Streaming

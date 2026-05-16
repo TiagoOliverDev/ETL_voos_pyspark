@@ -1,7 +1,7 @@
 import os
 
-from dotenv import load_dotenv
 import psycopg2
+from dotenv import load_dotenv
 
 from src.utils.logger import logger
 
@@ -12,15 +12,11 @@ def get_env_value(*names: str) -> str | None:
     """
     Busca o primeiro valor existente entre varias variaveis de ambiente.
 
-    O projeto pode rodar localmente, via Docker ou como job Spark. Cada contexto
-    pode usar nomes diferentes para as mesmas credenciais. Esta funcao permite
-    consultar esses nomes em ordem de prioridade.
-
     Args:
         *names: Nomes das variaveis de ambiente a verificar.
 
     Returns:
-        O valor da primeira variavel encontrada ou `None` se nenhuma existir.
+        O valor da primeira variavel encontrada ou `None`.
     """
     for name in names:
         value = os.getenv(name)
@@ -31,20 +27,13 @@ def get_env_value(*names: str) -> str | None:
 
 def get_postgres_connection_config() -> dict[str, str]:
     """
-    Retorna as credenciais do PostgreSQL usadas pelos jobs Spark.
-
-    Variaveis aceitas:
-        - ETL_DB_HOST ou HOST
-        - ETL_DB_PORT ou PORT
-        - ETL_DB_NAME ou DATABASE
-        - ETL_DB_USER ou USERNAME
-        - ETL_DB_PASSWORD ou PASSWORD
+    Retorna a configuracao de conexao com PostgreSQL usada pelo projeto.
 
     Returns:
-        Dicionario com `host`, `port`, `database`, `user` e `password`.
+        Dicionario com host, port, database, user e password.
 
     Raises:
-        ValueError: Quando alguma variavel obrigatoria nao foi configurada.
+        ValueError: Quando alguma variavel obrigatoria nao estiver configurada.
     """
     config = {
         "host": get_env_value("ETL_DB_HOST", "HOST"),
@@ -65,31 +54,26 @@ def get_postgres_connection_config() -> dict[str, str]:
 
 def get_postgres_jdbc_url() -> str:
     """
-    Monta a URL JDBC do PostgreSQL para uso com Spark.
+    Monta a URL JDBC do PostgreSQL.
 
     Returns:
-        URL no formato `jdbc:postgresql://host:porta/banco`.
+        URL JDBC no formato aceito pelo Spark.
     """
     config = get_postgres_connection_config()
     return f"jdbc:postgresql://{config['host']}:{config['port']}/{config['database']}"
 
 
-def get_postgres_jdbc_options(dbtable: str = "flight_data") -> dict[str, str]:
+def get_postgres_jdbc_options(dbtable: str) -> dict[str, str]:
     """
-    Monta as opcoes JDBC necessarias para o Spark gravar no PostgreSQL.
-
-    Esta e a funcao principal de conexao usada pelo ETL Spark. Ela centraliza
-    URL, tabela, usuario, senha e driver para que os modulos de carga nao
-    precisem conhecer detalhes das variaveis de ambiente.
+    Monta as opcoes JDBC para escrita Spark no PostgreSQL.
 
     Args:
-        dbtable: Nome da tabela de destino usada pelo writer JDBC do Spark.
+        dbtable: Nome da tabela de destino.
 
     Returns:
-        Dicionario pronto para ser passado em `df.write.options(**options)`.
+        Dicionario com URL, tabela, usuario, senha e driver JDBC.
     """
     config = get_postgres_connection_config()
-
     return {
         "url": get_postgres_jdbc_url(),
         "dbtable": dbtable,
@@ -101,13 +85,10 @@ def get_postgres_jdbc_options(dbtable: str = "flight_data") -> dict[str, str]:
 
 def get_postgres_psycopg2_connection():
     """
-    Cria uma conexao direta com PostgreSQL usando psycopg2.
-
-    Esta conexao e usada para operacoes administrativas leves do ETL, como
-    garantir a existencia da tabela de destino antes da carga via Spark JDBC.
+    Cria uma conexao psycopg2 para operacoes administrativas leves.
 
     Returns:
-        Conexao psycopg2 aberta para o banco configurado.
+        Conexao aberta com o PostgreSQL configurado.
     """
     config = get_postgres_connection_config()
     return psycopg2.connect(
@@ -119,13 +100,57 @@ def get_postgres_psycopg2_connection():
     )
 
 
-def ensure_flight_data_table_exists() -> None:
+def get_gold_table_ddl() -> list[str]:
     """
-    Garante que a tabela `flight_data` exista no PostgreSQL.
+    Retorna os comandos DDL das tabelas Gold publicadas no PostgreSQL.
 
-    A funcao executa um `CREATE TABLE IF NOT EXISTS` com o schema esperado pelo
-    ETL Spark. Isso permite que a primeira carga do projeto funcione mesmo em um
-    banco vazio, sem depender de criacao manual previa.
+    Returns:
+        Lista de comandos `CREATE TABLE IF NOT EXISTS`.
+    """
+    return [
+        """
+        CREATE TABLE IF NOT EXISTS gold_flight_positions (
+            aircraft_code VARCHAR(10) NOT NULL,
+            flight_callsign VARCHAR(20),
+            country_of_origin VARCHAR(100),
+            latitude DOUBLE PRECISION,
+            longitude DOUBLE PRECISION,
+            velocity DOUBLE PRECISION,
+            heading DOUBLE PRECISION,
+            vertical_rate DOUBLE PRECISION,
+            barometric_altitude_m DOUBLE PRECISION,
+            geometric_altitude_m DOUBLE PRECISION,
+            is_on_ground BOOLEAN,
+            position_timestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+            last_contact_timestamp TIMESTAMP WITHOUT TIME ZONE,
+            snapshot_timestamp TIMESTAMP WITHOUT TIME ZONE,
+            ingested_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+            snapshot_date DATE NOT NULL,
+            snapshot_hour INTEGER NOT NULL,
+            PRIMARY KEY (aircraft_code, position_timestamp)
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS gold_country_metrics (
+            snapshot_timestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+            snapshot_date DATE NOT NULL,
+            snapshot_hour INTEGER NOT NULL,
+            country_of_origin VARCHAR(100) NOT NULL,
+            total_flights BIGINT NOT NULL,
+            airborne_flights BIGINT NOT NULL,
+            grounded_flights BIGINT NOT NULL,
+            avg_velocity DOUBLE PRECISION,
+            avg_barometric_altitude_m DOUBLE PRECISION,
+            max_geometric_altitude_m DOUBLE PRECISION,
+            PRIMARY KEY (snapshot_timestamp, country_of_origin)
+        );
+        """,
+    ]
+
+
+def ensure_gold_tables_exist() -> None:
+    """
+    Garante a existencia das tabelas Gold no PostgreSQL.
 
     Returns:
         None.
@@ -133,30 +158,14 @@ def ensure_flight_data_table_exists() -> None:
     Raises:
         Exception: Repassa erros de conexao ou execucao SQL.
     """
-    create_table_sql = """
-    CREATE TABLE IF NOT EXISTS flight_data (
-        aircraft_code VARCHAR(10) NOT NULL,
-        flight_callsign VARCHAR(10),
-        country_of_origin VARCHAR(100),
-        latitude DOUBLE PRECISION,
-        longitude DOUBLE PRECISION,
-        velocity DOUBLE PRECISION,
-        heading DOUBLE PRECISION,
-        barometric_altitude_m DOUBLE PRECISION,
-        geometric_altitude_m DOUBLE PRECISION,
-        is_on_ground BOOLEAN,
-        position_timestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-        last_contact_timestamp TIMESTAMP WITHOUT TIME ZONE,
-        ingested_at TIMESTAMP WITHOUT TIME ZONE,
-        PRIMARY KEY (aircraft_code, position_timestamp)
-    );
-    """
+    statements = get_gold_table_ddl()
 
     try:
         with get_postgres_psycopg2_connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(create_table_sql)
-        logger.info("Tabela flight_data verificada/criada com sucesso.")
+                for statement in statements:
+                    cursor.execute(statement)
+        logger.info("Tabelas Gold verificadas/criadas com sucesso.")
     except Exception as exc:
-        logger.error(f"Erro ao garantir a existencia da tabela flight_data: {exc}")
+        logger.error(f"Erro ao garantir a existencia das tabelas Gold: {exc}")
         raise

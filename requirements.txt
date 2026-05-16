@@ -44,7 +44,6 @@ pyarrow==20.0.0
 pycparser==2.22
 Pygments==2.19.1
 pyparsing==3.2.3
-pymongo==4.8.0
 pyspark==3.5.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.0
